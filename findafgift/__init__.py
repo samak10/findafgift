@@ -9,6 +9,7 @@ from .afgift import (
     beregn_ny,
     ny_vaerdi_fra_nypris,
 )
+from .billedvurdering import Billedvurderer, Billedvurdering
 from .bilinfo import BilinfoBil, BilinfoKlient, laes_fil, parse_feed
 from .co2 import fastsaet_co2
 from .tilbud import Ekstraudstyr, Tilbud
@@ -17,6 +18,8 @@ from .vurdering import Vurdering, vurder_tilbud
 
 __all__ = [
     "AfgiftsBeregning",
+    "Billedvurderer",
+    "Billedvurdering",
     "BilinfoBil",
     "BilinfoKlient",
     "Ekstraudstyr",

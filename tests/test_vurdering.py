@@ -114,25 +114,25 @@ class TestVaerdifastsaettelse(unittest.TestCase):
     def test_identiske_annoncer(self):
         v = vaerdifastsaet(tilbud(), self.biler, DATO)
         # nr. 4 har for lang liggetid, nr. 5 er leasing; resten er ikke identiske
-        self.assertEqual(ids(v.annoncer), ["01", "02", "03"])
+        self.assertEqual(ids(v.annoncer), ["01", "02", "03", "13"])
         self.assertTrue(all(a.niveau == 0 for a in v.annoncer))
 
     def test_handelsprisniveau_og_km(self):
         v = vaerdifastsaet(tilbud(), self.biler, DATO)
-        niveau = (219_900 + 229_900 + 214_900) / 3 - 1_180
+        niveau = (219_900 + 229_900 + 214_900 + 189_900) / 4 - 1_180
         self.assertAlmostEqual(v.handelsprisniveau, niveau)
-        self.assertEqual(v.gennemsnit_km, 60_000)
-        # bilen er 5 år -> 17 øre; 90.000 km er 50 % over gennemsnittet
-        reg = niveau * 0.17 * (60_000 - 90_000) / 100_000
+        self.assertEqual(v.gennemsnit_km, 61_250)
+        # bilen er 5 år -> 17 øre; 90.000 km er 47 % over gennemsnittet
+        reg = niveau * 0.17 * (61_250 - 90_000) / 100_000
         self.assertEqual(v.km_regulering, rund100(reg))
         self.assertEqual(v.handelspris, round(niveau + rund100(reg)))
         self.assertEqual(v.nypris, 329_990)
 
     def test_udvidelse_naar_for_faa(self):
-        p = Parametre(min_annoncer=5)
+        p = Parametre(min_annoncer=6)
         v = vaerdifastsaet(tilbud(), self.biler, DATO, p)
-        # identiske (3) -> udstyrsniveau udvidet (+nr. 6) -> år ±1 (+nr. 7)
-        self.assertEqual(ids(v.annoncer), ["01", "02", "03", "06", "07"])
+        # identiske (4) -> udstyrsniveau udvidet (+nr. 6) -> år ±1 (+nr. 7)
+        self.assertEqual(ids(v.annoncer), ["01", "02", "03", "06", "07", "13"])
         a6 = next(a for a in v.annoncer if a.bil.vehicle_id.endswith("06"))
         self.assertAlmostEqual(a6.korrigeret_pris, (244_900 - 1_180) * 329_990 / 359_990)
 

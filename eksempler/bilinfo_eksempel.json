@@ -1,6 +1,6 @@
 {
   "ApiVersion": "3",
-  "VehicleCount": 12,
+  "VehicleCount": 13,
   "Vehicles": [
     {
       "VehicleId": "00000000-0000-0000-0000-000000000001",
@@ -32,7 +32,13 @@
       "CashPrice": "219900",
       "NewPrice": "329990",
       "Co2Emission": "130",
-      "KmPerLiter": "17,5"
+      "KmPerLiter": "17,5",
+      "Pictures": [
+        "https://billeder.bilinfo.net/bilinfo/golf1-1.jpg?class=S1600X1600",
+        "https://billeder.bilinfo.net/bilinfo/golf1-2.jpg?class=S1600X1600",
+        "https://billeder.bilinfo.net/bilinfo/golf1-3.jpg?class=S1600X1600"
+      ],
+      "Comment": "1 ejer, servicebog, ikke ryger"
     },
     {
       "VehicleId": "00000000-0000-0000-0000-000000000002",
@@ -61,7 +67,13 @@
       "CashPrice": "229900",
       "NewPrice": "329990",
       "Co2Emission": "130",
-      "KmPerLiter": "17,5"
+      "KmPerLiter": "17,5",
+      "Pictures": [
+        "https://billeder.bilinfo.net/bilinfo/golf2-1.jpg?class=S1600X1600",
+        "https://billeder.bilinfo.net/bilinfo/golf2-2.jpg?class=S1600X1600",
+        "https://billeder.bilinfo.net/bilinfo/golf2-3.jpg?class=S1600X1600"
+      ],
+      "Comment": "1 ejer, servicebog, ikke ryger"
     },
     {
       "VehicleId": "00000000-0000-0000-0000-000000000003",
@@ -90,7 +102,13 @@
       "CashPrice": "214900",
       "NewPrice": "329990",
       "Co2Emission": "130",
-      "KmPerLiter": "17,5"
+      "KmPerLiter": "17,5",
+      "Pictures": [
+        "https://billeder.bilinfo.net/bilinfo/golf3-1.jpg?class=S1600X1600",
+        "https://billeder.bilinfo.net/bilinfo/golf3-2.jpg?class=S1600X1600",
+        "https://billeder.bilinfo.net/bilinfo/golf3-3.jpg?class=S1600X1600"
+      ],
+      "Comment": "1 ejer, servicebog, ikke ryger"
     },
     {
       "VehicleId": "00000000-0000-0000-0000-000000000004",
@@ -342,6 +360,44 @@
       "CashPrice": "149900",
       "NewPrice": "209990",
       "Co2Emission": "118"
+    },
+    {
+      "VehicleId": "00000000-0000-0000-0000-000000000013",
+      "VehicleSourceId": "10000000-0000-0000-0000-000000000013",
+      "Make": "VW",
+      "Model": "Golf",
+      "Variant": "1,5 TSi 150 Life DSG",
+      "Year": "2021",
+      "RegistrationDate": "01-05-2021",
+      "Mileage": "65000",
+      "Motor": "1,5",
+      "Effect": "150",
+      "Propellant": "Benzin",
+      "Type": "Personvogn",
+      "TypeId": "P",
+      "GearType": "A",
+      "BodyType": "Hatchback",
+      "Price": "189900",
+      "PriceType": "RetailPrice",
+      "ApprovedFuelEconomyMeasurementMethod": "wltp",
+      "EquipmentList": [
+        "Navigation",
+        "SeatHeater"
+      ],
+      "ExtraEquipmentList": [],
+      "DealerName": "Eksempel Biler",
+      "CreatedDate": "15-10-2026 10:00:00",
+      "ModifiedDate": "15-10-2026 10:00:00",
+      "CashPrice": "189900",
+      "NewPrice": "329990",
+      "Co2Emission": "130",
+      "KmPerLiter": "17,5",
+      "Pictures": [
+        "https://billeder.bilinfo.net/bilinfo/golf13-1.jpg?class=S1600X1600",
+        "https://billeder.bilinfo.net/bilinfo/golf13-2.jpg?class=S1600X1600",
+        "https://billeder.bilinfo.net/bilinfo/golf13-3.jpg?class=S1600X1600"
+      ],
+      "Comment": "Bule i venstre fordør og ridse på bagskærm"
     }
   ]
 }

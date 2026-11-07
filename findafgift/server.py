@@ -8,7 +8,9 @@ Endpoints:
     POST /afgift/ny      {"vaerdi": 300000, "co2": 120, "koeretoejstype": "personbil", "aar": 2026}
     POST /afgift/brugt   {"handelspris": 800000, "nypris": 1500000, "co2": 0, "aar": 2026}
     POST /vurder         {"tilbud": {...}, "aar": 2026, "parametre": {...}, "dealer_id": "..."}
-                         eller {"vehicle_id": "<Bilinfo VehicleId>", "tilbud": {"stand": "middel", "tilbudt_pris": 120000}}
+                         eller {"vehicle_id": "<Bilinfo VehicleId>", "tilbud": {"tilbudt_pris": 120000}}
+                         "billedvurdering": true vurderer stand/skader fra Bilinfo-billeder med Claude
+    POST /billedvurdering {"vehicle_id": "..."} eller {"billeder": ["https://..."], "info": {...}}
     GET  /biler?maerke=VW&model=Golf
 """
 
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import traceback
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,9 +39,24 @@ class Fejl(Exception):
 
 
 class App:
-    def __init__(self, klient: BilinfoKlient | None = None, feed_fil: str | None = None) -> None:
+    def __init__(
+        self, klient: BilinfoKlient | None = None, feed_fil: str | None = None, billedvurderer=None
+    ) -> None:
         self.klient = klient
         self.feed_fil = feed_fil
+        self.billedvurderer = billedvurderer
+
+    def _billedvurderer(self, body: dict):
+        if not body.get("billedvurdering"):
+            return None
+        if self.billedvurderer is None:
+            try:
+                from .billedvurdering import Billedvurderer
+
+                self.billedvurderer = Billedvurderer(cache_fil=os.environ.get("FINDAFGIFT_BILLEDCACHE"))
+            except Exception as e:
+                raise Fejl(503, f"Billedvurdering er ikke tilgængelig (pip install anthropic + ANTHROPIC_API_KEY): {e}")
+        return self.billedvurderer
 
     def biler(self, dealer_id: str | None = None) -> list[BilinfoBil]:
         if self.feed_fil:
@@ -89,8 +107,24 @@ class App:
             else:
                 raise Fejl(400, "Angiv 'tilbud' eller 'vehicle_id'.")
             return vurder_tilbud(
-                tilbud, biler, aar=body.get("aar"), parametre=Parametre.fra_dict(body.get("parametre"))
+                tilbud,
+                biler,
+                aar=body.get("aar"),
+                parametre=Parametre.fra_dict(body.get("parametre")),
+                billedvurderer=self._billedvurderer(body),
             ).as_dict()
+
+        if metode == "POST" and sti == "/billedvurdering":
+            bv = self._billedvurderer({"billedvurdering": True})
+            if "vehicle_id" in body:
+                biler = self.biler(body.get("dealer_id"))
+                bil = next((b for b in biler if body["vehicle_id"] in (b.vehicle_id, b.vehicle_source_id)), None)
+                if bil is None:
+                    raise Fejl(404, f"Bil med id {body['vehicle_id']} findes ikke i Bilinfo.")
+                return {**bil.kort(), "billedvurdering": bv.vurder_bil(bil).as_dict()}
+            if "billeder" in body:
+                return bv.vurder(list(body["billeder"]), body.get("info") or {}).as_dict()
+            raise Fejl(400, "Angiv 'vehicle_id' eller 'billeder'.")
 
         if metode == "GET" and sti == "/biler":
             biler = self.biler(query.get("dealer_id", [None])[0])

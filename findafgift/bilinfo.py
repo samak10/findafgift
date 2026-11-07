@@ -89,6 +89,8 @@ class BilinfoBil:
     oprettet: date | None = None  # CreatedDate - bruges til annoncens liggetid
     aendret: date | None = None  # ModifiedDate
     totalvaegt: int | None = None  # kg
+    billeder: list[str] = field(default_factory=list)  # Pictures (URL'er)
+    kommentar: str = ""  # Comment (annoncetekst)
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -132,6 +134,8 @@ class BilinfoBil:
             oprettet=dato(d.get("CreatedDate")),
             aendret=dato(d.get("ModifiedDate")),
             totalvaegt=heltal(d.get("TotalWeight")),
+            billeder=[str(u) for u in (d.get("Pictures") or []) if u],
+            kommentar=(d.get("Comment") or "").strip(),
             raw=d,
         )
 
@@ -169,6 +173,7 @@ class BilinfoBil:
             "km_pr_liter": self.km_pr_liter,
             "forhandler": self.forhandler,
             "oprettet": self.oprettet.isoformat() if self.oprettet else None,
+            "antal_billeder": len(self.billeder),
         }
 
 

@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+billeder = ["anthropic>=2.6"]
+
 [project.scripts]
 findafgift-server = "findafgift.server:main"
 

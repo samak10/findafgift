@@ -7,7 +7,8 @@ Beregner dansk **registreringsafgift** for en bil, du får tilbudt:
 - **Alle bildata fra Bilinfo**: annoncepriser, km, årgang, motor, hk, karrosseri, nypris
   (`NewPrice`) og CO2 (`Co2Emission`). Den tilbudte bil kan hentes direkte fra Bilinfo via dens `VehicleId`.
 
-Ingen eksterne afhængigheder (kun Python ≥ 3.10 standardbibliotek).
+Ingen eksterne afhængigheder (kun Python ≥ 3.10 standardbibliotek). Billedvurderingen kræver
+`pip install anthropic` (eller `pip install .[billeder]`).
 
 ## Motorstyrelsens metode, trin for trin
 
@@ -68,6 +69,20 @@ for den del, der overstiger 30.000 kr.
 **Ingen annoncer:** Handelsprisen beregnes ud fra nyprisen med Motorstyrelsens nedskrivningsskala
 (15-55 % afhængigt af alder og nypris).
 
+**Billedvurdering (valgfri):** Bilinfo-billederne (`Pictures`) og annonceteksten (`Comment`)
+vurderes med Claude (`claude-opus-5-5`, vision). Svaret er struktureret: stand (under/middel/over),
+skader (type, placering, alvor, billede-nr.), sikkerhed og om bilen afviger væsentligt.
+Resultatet bruges efter Motorstyrelsens regler:
+
+- **Annoncebiler med væsentlige skader fravælges.** Motorstyrelsen bruger kun annoncer, der ikke
+  adskiller sig væsentligt fra bilen. Fravalgte annoncer vises i `fravalgte_annoncer`.
+- **Annoncebiler under eller over middel reguleres ±2 %** (højst 20.000 kr.), så prisen svarer
+  til middel stand. Det sker kun, hvis sikkerheden ikke er lav.
+- **Den tilbudte bils stand** forhåndsvurderes fra billederne, når den ikke er angivet. Den giver
+  ±2 % efter § 30. Den officielle stand fastsættes ved toldsynet, og en angivet stand har altid forrang.
+
+Vurderinger caches (fil eller hukommelse), så samme annonce ikke betales to gange.
+
 **7. Afgift**: Beregnes som for en ny bil, men skalaknæk, CO2-tillæg og fradrag nedsættes med
 bilens værditab (handelspris / nypris). Se REGAL § 4, stk. 6 og SKM2014.427.HR.
 
@@ -88,11 +103,15 @@ tilbud = Tilbud(
     maerke="VW", model="Golf", variant="1,5 TSi 150 Life DSG", udstyrsniveau="Life",
     aargang=2021, foerste_registrering=date(2021, 4, 1), km=90000,
     motor=1.5, hk=150, drivmiddel="benzin", gear="A",
-    stand="middel",                 # fra toldsynsrapporten: middel / over / under
+    # stand="middel",               # fra toldsynet; udelades den, kan den vurderes fra billeder
+    billeder=["https://..."],       # billeder af den tilbudte bil (valgfrit)
     tilbudt_pris=120000,            # pris uden dansk afgift
 )
 
 v = vurder_tilbud(tilbud, biler)
+# med billedvurdering (pip install anthropic, ANTHROPIC_API_KEY sat):
+# from findafgift import Billedvurderer
+# v = vurder_tilbud(tilbud, biler, billedvurderer=Billedvurderer(cache_fil="billedcache.json"))
 print(v.vaerdi.handelspris, v.vaerdi.nypris, v.afgift.registreringsafgift)
 for t in v.vaerdi.trin:  # hele Motorstyrelsens regnestykke
     print(t)
@@ -124,7 +143,11 @@ Til test uden Bilinfo-adgang kan du bruge `--feed-fil eksempler/bilinfo_eksempel
 | POST | `/afgift/brugt` | `{"handelspris": 800000, "nypris": 1500000, "co2": 0, "aar": 2026}` (eller `pris_uden_afgift`) |
 | POST | `/vurder` | `{"tilbud": {...}, "aar": 2026, "parametre": {...}, "dealer_id": "..."}` |
 | POST | `/vurder` | `{"vehicle_id": "<Bilinfo VehicleId>", "tilbud": {"stand": "middel", "tilbudt_pris": 120000}}` |
+| POST | `/billedvurdering` | `{"vehicle_id": "..."}` eller `{"billeder": ["https://..."], "info": {...}}` |
 | GET | `/biler?maerke=VW&model=Golf` | |
+
+Tilføj `"billedvurdering": true` på `/vurder` for at vurdere billeder. Det kræver `pip install anthropic`
+og `ANTHROPIC_API_KEY`. `FINDAFGIFT_BILLEDCACHE=sti.json` gemmer vurderingerne.
 
 Se `eksempler/tilbud.json` for et eksempel på et tilbud.
 
@@ -137,6 +160,10 @@ curl -X POST localhost:8000/vurder -d "{\"tilbud\": $(cat eksempler/tilbud.json)
 Biler hentes fra Bilinfo Listing API v3: `GET https://gw.bilinfo.net/listingapi/api/export`
 med Basic-auth ([dokumentation](https://developer.bilinfo.net/content/Bilinfo_XML_API.pdf)).
 Adgang fås via Bilinfo kundeservice (bilinfo@bilinfo.dk).
+
+Til værdifastsættelse skal I bruge **"Full feed with all cars advertised on Bilbasen"**. Bilinfo
+sælger det netop til prisberegning og prisvurdering. Et forhandlerfeed indeholder kun jeres egne
+biler og er ikke nok til at finde sammenlignelige annoncer.
 
 Fra Bilinfo bruges: `Price`/`CashPrice` (kun `PriceType = RetailPrice` som pris inkl. afgift),
 `AdvertisedTaxFreePrice`, `NewPrice`, `Mileage`, `Year`, `RegistrationDate`, `Motor`, `Effect`,
@@ -183,6 +210,9 @@ eller × 29/32 (NEDC) for benzin/diesel.
 - Solgte og historiske annoncer (op til 12 måneder) er ikke med, fordi Bilinfo-feedet kun
   indeholder aktive annoncer.
 - Udstyrsniveauet matches på varianttekst og feltet `udstyrsniveau`.
+- Billedvurderingen ser kun det, der er på billederne. Forhandlerbilleder kan skjule skader, så
+  den erstatter ikke toldsynet. En vurdering koster ca. 8 billeder × ~1.600 tokens med
+  Claude Opus 5.5. Brug `max_billeder` og `billedstoerrelse` til at styre det.
 
 ## Tests
 

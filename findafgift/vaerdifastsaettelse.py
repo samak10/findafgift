@@ -16,6 +16,10 @@ Fremgangsmåde:
   4. Kilometerregulering ud fra gennemsnitskilometerstanden.
   5. Regulering for stand (±2 %, maks. 20.000 kr.) og skiftende chauffører (-5 %).
   6. Tillæg for ekstraudstyr, nedskrevet efter bilens alder.
+  Valgfrit: Bilinfo-billeder og annoncetekst vurderes med Claude (billedvurdering.py).
+  Annoncebiler med væsentlige skader fravælges, og mindre afvigelser i stand reguleres
+  med ±2 %, så annonceprisen svarer til middel stand. Den tilbudte bils stand kan
+  forhåndsvurderes fra billeder, når standen fra toldsynet ikke er angivet.
   Findes der ingen annoncer, nedskrives nyprisen efter Motorstyrelsens skala.
 """
 
@@ -26,8 +30,13 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
+from typing import TYPE_CHECKING
+
 from .afgift import beregn_brugt_fra_pris_uden_afgift, kr
 from .bilinfo import BilinfoBil
+
+if TYPE_CHECKING:
+    from .billedvurdering import Billedvurderer, Billedvurdering
 from .co2 import fastsaet_co2, normaliser_drivmiddel
 from .tilbud import Ekstraudstyr, Tilbud
 
@@ -57,6 +66,9 @@ class Parametre:
     # Den juridiske vejledning nævner "evt. annoncefradrag" uden fast sats.
     annoncefradrag_pct: float = 0.0
     regulering_for_nypris: bool = True
+    # Billedvurdering (kræver en Billedvurderer):
+    fravaelg_vaesentlige_skader: bool = True
+    reguler_annoncestand: bool = True
 
     @classmethod
     def fra_dict(cls, d: dict | None) -> "Parametre":
@@ -72,9 +84,11 @@ class Annonce:
     korrektioner: list[tuple[str, float]]
     korrigeret_pris: float
     liggetid_dage: int | None
+    billedvurdering: "Billedvurdering | None" = None
 
     def as_dict(self) -> dict:
         return {
+            "billedvurdering": self.billedvurdering.as_dict() if self.billedvurdering else None,
             **self.bil.kort(),
             "udsoegningsniveau": self.niveau,
             "udsoegning": self.niveau_tekst,
@@ -101,6 +115,10 @@ class Vaerdifastsaettelse:
     alder_aar: int | None = None
     alder_maaneder: int | None = None
     annoncer: list[Annonce] = field(default_factory=list)
+    fravalgte_annoncer: list[dict] = field(default_factory=list)
+    stand: str = "middel"
+    stand_kilde: str = "standard"
+    tilbud_billedvurdering: "Billedvurdering | None" = None
     trin: list[tuple[str, float]] = field(default_factory=list)
     advarsler: list[str] = field(default_factory=list)
 
@@ -120,6 +138,10 @@ class Vaerdifastsaettelse:
             "alder": {"aar": self.alder_aar, "maaneder": self.alder_maaneder},
             "antal_annoncer": len(self.annoncer),
             "annoncer": [a.as_dict() for a in self.annoncer],
+            "fravalgte_annoncer": self.fravalgte_annoncer,
+            "stand": self.stand,
+            "stand_kilde": self.stand_kilde,
+            "tilbud_billedvurdering": self.tilbud_billedvurdering.as_dict() if self.tilbud_billedvurdering else None,
             "trin": [{"tekst": t, "beloeb": round(b)} for t, b in self.trin],
             "advarsler": self.advarsler,
         }
@@ -229,7 +251,13 @@ def _liggetid(b: BilinfoBil, dato: date) -> int | None:
 
 
 def _korriger(
-    t: Tilbud, b: BilinfoBil, pris: float, nypris: int | None, p: Parametre, fuldt_identisk: bool
+    t: Tilbud,
+    b: BilinfoBil,
+    pris: float,
+    nypris: int | None,
+    p: Parametre,
+    fuldt_identisk: bool,
+    bv: "Billedvurdering | None" = None,
 ) -> tuple[list[tuple[str, float]], float]:
     korr: list[tuple[str, float]] = []
     # Prismærkningsbekendtgørelsen omfatter personbiler og varebiler op til 2.000 kg totalvægt.
@@ -241,6 +269,12 @@ def _korriger(
         faktor = nypris / b.nypris
         korr.append((f"Regulering for forskel i nypris ({kr(b.nypris)} -> {kr(nypris)})", pris * (faktor - 1)))
         pris *= faktor
+    if p.reguler_annoncestand and bv is not None and bv.ok and bv.sikkerhed != "lav" and bv.stand != "middel":
+        # Annonceprisen omregnes til middel stand: under middel +2 %, over middel -2 % (maks. 20.000 kr.)
+        beloeb = rund100(min(0.02 * pris, 20_000))
+        beloeb = beloeb if bv.stand == "under" else -beloeb
+        korr.append((f"Regulering til middel stand (billedvurdering: {bv.stand} middel)", beloeb))
+        pris += beloeb
     if p.annoncefradrag_pct:
         fradrag = pris * p.annoncefradrag_pct / 100
         korr.append((f"Annoncefradrag {p.annoncefradrag_pct:g} %", -fradrag))
@@ -249,53 +283,84 @@ def _korriger(
 
 
 def udvaelg_annoncer(
-    t: Tilbud, biler: list[BilinfoBil], dato: date, nypris: int | None, p: Parametre, advarsler: list[str]
+    t: Tilbud,
+    biler: list[BilinfoBil],
+    dato: date,
+    nypris: int | None,
+    p: Parametre,
+    advarsler: list[str],
+    billedvurderer: "Billedvurderer | None" = None,
+    fravalgte: list[dict] | None = None,
 ) -> list[Annonce]:
-    def soeg(tillad_lang_liggetid: bool, tillad_uden_afgift: bool) -> list[Annonce]:
+    vurderinger: dict[str, "Billedvurdering"] = {}
+    fravalgte = fravalgte if fravalgte is not None else []
+
+    def pris_inkl_afgift(b: BilinfoBil, tillad_uden_afgift: bool) -> tuple[float, list] | None:
+        if b.pris_inkl_afgift:
+            return float(b.pris_inkl_afgift), []
+        if tillad_uden_afgift and b.pris_uden_afgift and b.nypris:
+            co2 = fastsaet_co2(b.drivmiddel, b.co2_g_km, b.km_pr_liter, b.maalemetode).g_km
+            if co2 is None:
+                return None
+            afg = beregn_brugt_fra_pris_uden_afgift(b.pris_uden_afgift, b.nypris, co2, aar=dato.year).registreringsafgift
+            return float(b.pris_uden_afgift + afg), [
+                (f"Omregnet fra pris uden afgift ({kr(b.pris_uden_afgift)}) + beregnet afgift", afg)
+            ]
+        return None  # leasing, engros eller "ring for pris"
+
+    def soeg(tillad_lang_liggetid: bool, tillad_uden_afgift: bool) -> tuple[list[Annonce], list[dict]]:
         valgt: list[Annonce] = []
-        set_ids: set[str] = set()
+        brugt: set[str] = set()
+        fravalgt_her: list[dict] = []
         for i, k in enumerate(udsoegningsniveauer(p.max_aar_udvidelse)):
+            kandidater: list[tuple[BilinfoBil, float, list, int | None]] = []
             for b in biler:
                 kilde = b.vehicle_source_id or b.vehicle_id
-                if kilde in set_ids or not _er_identisk_paa(t, b, k, p):
+                if kilde in brugt or not _er_identisk_paa(t, b, k, p):
                     continue
                 lig = _liggetid(b, dato)
                 if not tillad_lang_liggetid and lig is not None and lig > p.max_liggetid_dage:
                     continue
-                korr0: list[tuple[str, float]] = []
-                if b.pris_inkl_afgift:
-                    pris = float(b.pris_inkl_afgift)
-                elif tillad_uden_afgift and b.pris_uden_afgift and b.nypris:
-                    co2 = fastsaet_co2(b.drivmiddel, b.co2_g_km, b.km_pr_liter, b.maalemetode).g_km
-                    if co2 is None:
-                        continue
-                    afg = beregn_brugt_fra_pris_uden_afgift(
-                        b.pris_uden_afgift, b.nypris, co2, aar=dato.year
-                    ).registreringsafgift
-                    pris = float(b.pris_uden_afgift + afg)
-                    korr0.append((f"Omregnet fra pris uden afgift ({kr(b.pris_uden_afgift)}) + beregnet afgift", afg))
-                else:
-                    continue  # leasing, engros eller "ring for pris"
+                pr = pris_inkl_afgift(b, tillad_uden_afgift)
+                if pr is None:
+                    continue
+                brugt.add(kilde)
+                kandidater.append((b, pr[0], pr[1], lig))
+
+            if billedvurderer is not None:
+                nye = [b for b, *_ in kandidater if b.vehicle_id not in vurderinger]
+                if nye:
+                    vurderinger.update(billedvurderer.vurder_mange(nye))
+
+            for b, pris, korr0, lig in kandidater:
+                bv = vurderinger.get(b.vehicle_id)
+                if p.fravaelg_vaesentlige_skader and bv is not None and bv.ok and bv.vaesentlig_afvigelse:
+                    fravalgt_her.append(
+                        {**b.kort(), "aarsag": "Væsentlige skader på billederne", "billedvurdering": bv.as_dict()}
+                    )
+                    continue
                 fuldt = _er_fuldt_identisk(t, b, p)
-                korr, korrigeret = _korriger(t, b, pris, nypris, p, fuldt)
-                set_ids.add(kilde)
+                korr, korrigeret = _korriger(t, b, pris, nypris, p, fuldt, bv)
                 valgt.append(
-                    Annonce(b, i, k.tekst, round(pris - sum(x for _, x in korr0)), korr0 + korr, korrigeret, lig)
+                    Annonce(b, i, k.tekst, round(pris - sum(x for _, x in korr0)), korr0 + korr, korrigeret, lig, bv)
                 )
             if len(valgt) >= p.min_annoncer:
                 break
-        return valgt
+        return valgt, fravalgt_her
 
-    annoncer = soeg(False, False)
+    annoncer, fravalgt = soeg(False, False)
     if len(annoncer) < p.min_annoncer:
         # Specielle køretøjer: udvid til lang liggetid og annoncer uden afgift.
-        udvidet = soeg(True, True)
+        udvidet, fravalgt_udvidet = soeg(True, True)
         if len(udvidet) > len(annoncer):
             advarsler.append(
                 "For få annoncer: søgningen er udvidet til annoncer med liggetid over "
                 f"{p.max_liggetid_dage} dage og/eller annoncer uden afgift (specielle køretøjer)."
             )
-            annoncer = udvidet
+            annoncer, fravalgt = udvidet, fravalgt_udvidet
+    fravalgte.extend(fravalgt)
+    if fravalgt:
+        advarsler.append(f"{len(fravalgt)} annonce(r) fravalgt pga. væsentlige skader på billederne.")
     if 0 < len(annoncer) < p.min_annoncer:
         advarsler.append(
             f"Kun {len(annoncer)} annonce(r) fundet - Motorstyrelsen bruger mindst {p.min_annoncer}, gerne 5 eller flere."
@@ -394,6 +459,7 @@ def vaerdifastsaet(
     biler: list[BilinfoBil],
     dato: date | None = None,
     parametre: Parametre | None = None,
+    billedvurderer: "Billedvurderer | None" = None,
 ) -> Vaerdifastsaettelse:
     dato = dato or date.today()
     p = parametre or Parametre()
@@ -424,7 +490,38 @@ def vaerdifastsaet(
     if udstyr_nyv and nypris_basis:
         trin.append((f"Nypris inkl. ekstraudstyr ({kr(nypris_basis)} + {kr(udstyr_nyv)})", nypris))
 
-    annoncer = udvaelg_annoncer(tilbud, biler, dato, nypris_basis, p, advarsler)
+    # Den tilbudte bils stand: fra toldsynet hvis angivet, ellers forhåndsvurderet fra billeder.
+    stand, stand_kilde, tilbud_bv = tilbud.stand or "middel", "angivet" if tilbud.stand else "standard", None
+    if billedvurderer is not None and (tilbud.billeder or tilbud.kommentar):
+        tilbud_bv = billedvurderer.vurder(
+            tilbud.billeder,
+            {
+                "bil": f"{tilbud.maerke} {tilbud.model} {tilbud.variant}".strip(),
+                "årgang": tilbud.aargang,
+                "første registrering": foerste_reg.isoformat(),
+                "kilometerstand": tilbud.km,
+                "annoncetekst": tilbud.kommentar[:3000] or None,
+            },
+        )
+        if not tilbud_bv.ok:
+            advarsler.append(f"Billedvurdering af den tilbudte bil mislykkedes: {tilbud_bv.fejl}")
+        elif tilbud.stand is None:
+            if tilbud_bv.sikkerhed == "lav":
+                advarsler.append(
+                    f"Billedvurderingen ({tilbud_bv.stand} middel) har lav sikkerhed - middel stand er brugt."
+                )
+            else:
+                stand, stand_kilde = tilbud_bv.stand, "billedvurdering"
+                advarsler.append(
+                    f"Standen ({stand} middel) er forhåndsvurderet fra billeder - den officielle stand fastsættes ved toldsynet."
+                )
+        elif tilbud_bv.stand != tilbud.stand:
+            advarsler.append(
+                f"Billedvurderingen ({tilbud_bv.stand} middel) afviger fra den angivne stand ({tilbud.stand} middel)."
+            )
+
+    fravalgte: list[dict] = []
+    annoncer = udvaelg_annoncer(tilbud, biler, dato, nypris_basis, p, advarsler, billedvurderer, fravalgte)
     res = Vaerdifastsaettelse(
         metode="annoncer",
         handelspris=None,
@@ -437,6 +534,10 @@ def vaerdifastsaet(
         advarsler=advarsler,
         udstyr_tillaeg=udstyr_tillaeg,
         udstyr_nyvaerdi=udstyr_nyv,
+        fravalgte_annoncer=fravalgte,
+        stand=stand,
+        stand_kilde=stand_kilde,
+        tilbud_billedvurdering=tilbud_bv,
     )
 
     if annoncer:
@@ -462,10 +563,10 @@ def vaerdifastsaet(
     # Stand og særlig anvendelse (ikke for biler under 6 måneder).
     under_6_mdr = aar == 0 and mdr < 6
     if not under_6_mdr:
-        if tilbud.stand in ("over", "under"):
+        if stand in ("over", "under"):
             beloeb = min(0.02 * basis, 20_000)
-            res.stand_regulering = rund100(beloeb if tilbud.stand == "over" else -beloeb)
-            trin.append((f"Stand {tilbud.stand} middel: ±2 % (maks. 20.000 kr.)", res.stand_regulering))
+            res.stand_regulering = rund100(beloeb if stand == "over" else -beloeb)
+            trin.append((f"Stand {stand} middel ({stand_kilde}): ±2 % (maks. 20.000 kr.)", res.stand_regulering))
         if tilbud.skiftende_chauffoerer:
             res.anvendelse_regulering = rund100(-0.05 * basis)
             trin.append(("Skiftende chauffører: -5 %", res.anvendelse_regulering))

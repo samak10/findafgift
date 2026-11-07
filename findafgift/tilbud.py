@@ -46,7 +46,9 @@ class Tilbud:
     maalemetode: str = "wltp"  # 'wltp' eller 'nedc'
     nypris: int | None = None  # oprindelig dansk standardnypris inkl. afgift
     ekstraudstyr: list[Ekstraudstyr] = field(default_factory=list)
-    stand: str = "middel"  # 'middel', 'over' eller 'under' (fra toldsynsrapporten)
+    stand: str | None = None  # 'middel', 'over' eller 'under' fra toldsynet; None = ikke kendt endnu
+    billeder: list[str] = field(default_factory=list)  # billed-URL'er til billedvurdering
+    kommentar: str = ""  # annoncetekst/beskrivelse
     skiftende_chauffoerer: bool = False  # fx udlejningsbil, politi, sygetransport
     koeretoejstype: str = "personbil"
     tilbudt_pris: int | None = None  # prisen du får bilen tilbudt til (uden dansk afgift)
@@ -63,7 +65,7 @@ class Tilbud:
         d["ekstraudstyr"] = [
             e if isinstance(e, Ekstraudstyr) else Ekstraudstyr.fra_dict(e) for e in d.get("ekstraudstyr", [])
         ]
-        if d.get("stand", "middel") not in ("middel", "over", "under"):
+        if d.get("stand") not in (None, "middel", "over", "under"):
             raise ValueError("stand skal være 'middel', 'over' eller 'under'.")
         return cls(**d)
 
@@ -92,6 +94,8 @@ class Tilbud:
             maalemetode=normaliser_maalemetode(bil.maalemetode),
             nypris=bil.nypris,
             koeretoejstype=bil.koeretoejstype or "personbil",
+            billeder=list(bil.billeder),
+            kommentar=bil.kommentar,
         )
         d.update(overskriv)
         return cls.fra_dict(d)

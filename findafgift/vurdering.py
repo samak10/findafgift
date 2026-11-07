@@ -55,17 +55,19 @@ def vurder_tilbud(
     aar: int | None = None,
     parametre: Parametre | None = None,
     idag: date | None = None,
+    billedvurderer=None,
 ) -> Vurdering:
     """Værdifastsæt tilbuddet ud fra Bilinfo-annoncer og beregn registreringsafgiften.
 
     aar: afgiftsår (satser). Standard er året for værdifastsættelsen.
+    billedvurderer: valgfri Billedvurderer - vurderer stand/skader fra Bilinfo-billeder.
     """
     idag = idag or date.today()
     aar = aar or idag.year
     p = parametre or Parametre()
     advarsler: list[str] = []
 
-    vaerdi = vaerdifastsaet(tilbud, biler, idag, p)
+    vaerdi = vaerdifastsaet(tilbud, biler, idag, p, billedvurderer)
     advarsler += vaerdi.advarsler
 
     if tilbud.er_plugin:
