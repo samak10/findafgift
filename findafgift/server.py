@@ -8,6 +8,7 @@ Endpoints:
     POST /afgift/ny      {"vaerdi": 300000, "co2": 120, "koeretoejstype": "personbil", "aar": 2026}
     POST /afgift/brugt   {"handelspris": 800000, "nypris": 1500000, "co2": 0, "aar": 2026}
     POST /vurder         {"tilbud": {...}, "aar": 2026, "parametre": {...}, "dealer_id": "..."}
+                         eller {"vehicle_id": "<Bilinfo VehicleId>", "tilbud": {"stand": "middel", "tilbudt_pris": 120000}}
     GET  /biler?maerke=VW&model=Golf
 """
 
@@ -23,7 +24,8 @@ from urllib.parse import parse_qs, urlparse
 from .afgift import Koeretoejstype, beregn_brugt, beregn_brugt_fra_pris_uden_afgift, beregn_ny
 from .bilinfo import BilinfoBil, BilinfoKlient, laes_fil, parse_feed
 from .satser import SATSER, hent_satser
-from .sammenligning import Parametre, Tilbud
+from .tilbud import Tilbud
+from .vaerdifastsaettelse import Parametre
 from .vurdering import vurder_tilbud
 
 
@@ -74,10 +76,18 @@ class App:
             raise Fejl(400, "Angiv 'handelspris' (inkl. afgift) eller 'pris_uden_afgift'.")
 
         if metode == "POST" and sti == "/vurder":
-            if "tilbud" not in body:
-                raise Fejl(400, "Feltet 'tilbud' mangler.")
-            tilbud = Tilbud.fra_dict(body["tilbud"])
             biler = parse_feed(body["biler"]) if "biler" in body else self.biler(body.get("dealer_id"))
+            if "vehicle_id" in body:
+                # Den tilbudte bil hentes fra Bilinfo; 'tilbud' kan overskrive fx stand og tilbudt_pris.
+                bil = next((b for b in biler if body["vehicle_id"] in (b.vehicle_id, b.vehicle_source_id)), None)
+                if bil is None:
+                    raise Fejl(404, f"Bil med id {body['vehicle_id']} findes ikke i Bilinfo.")
+                tilbud = Tilbud.fra_bilinfo(bil, **body.get("tilbud", {}))
+                biler = [b for b in biler if b.vehicle_source_id != bil.vehicle_source_id and b.vehicle_id != bil.vehicle_id]
+            elif "tilbud" in body:
+                tilbud = Tilbud.fra_dict(body["tilbud"])
+            else:
+                raise Fejl(400, "Angiv 'tilbud' eller 'vehicle_id'.")
             return vurder_tilbud(
                 tilbud, biler, aar=body.get("aar"), parametre=Parametre.fra_dict(body.get("parametre"))
             ).as_dict()

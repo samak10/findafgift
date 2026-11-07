@@ -1,4 +1,8 @@
-"""Samlet vurdering af en tilbudt bil: Bilinfo-sammenligning + registreringsafgift."""
+"""Samlet vurdering af en tilbudt bil.
+
+Bildata kommer fra Bilinfo, og værdifastsættelse og afgiftsberegning følger
+Motorstyrelsens regler (Den juridiske vejledning afsnit I.A.1.4 og I.A.1.5.3).
+"""
 
 from __future__ import annotations
 
@@ -8,27 +12,25 @@ from datetime import date
 from .afgift import AfgiftsBeregning, Koeretoejstype, beregn_brugt
 from .bilinfo import BilinfoBil
 from .co2 import Co2Resultat, fastsaet_co2
-from .sammenligning import Parametre, PrisEstimat, Tilbud, estimer_priser
+from .tilbud import Tilbud
+from .vaerdifastsaettelse import Parametre, Vaerdifastsaettelse, _er_fuldt_identisk, alder, vaerdifastsaet
 
 
 @dataclass
 class Vurdering:
     tilbud: Tilbud
-    priser: PrisEstimat
+    vaerdi: Vaerdifastsaettelse
     co2: Co2Resultat
     afgift: AfgiftsBeregning | None
     samlet_pris: int | None = None  # tilbudt pris + registreringsafgift
-    forskel_til_handelspris: int | None = None  # positiv = billigere end i DK
+    forskel_til_handelspris: int | None = None  # positiv = billigere end tilsvarende bil i DK
     advarsler: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
-        t = self.tilbud
         return {
-            "tilbud": {
-                k: (v.isoformat() if isinstance(v, date) else v) for k, v in t.__dict__.items()
-            },
+            "tilbud": self.tilbud.as_dict(),
             "co2": {"g_km": self.co2.g_km, "note": self.co2.note},
-            "priser": self.priser.as_dict(),
+            "vaerdifastsaettelse": self.vaerdi.as_dict(),
             "afgift": self.afgift.as_dict() if self.afgift else None,
             "samlet_pris": self.samlet_pris,
             "forskel_til_handelspris": self.forskel_til_handelspris,
@@ -36,11 +38,14 @@ class Vurdering:
         }
 
 
-def _alder(t: Tilbud, idag: date) -> float | None:
-    if t.foerste_registrering:
-        return (idag - t.foerste_registrering).days / 365.25
-    if t.aargang:
-        return float(idag.year - t.aargang)
+def _co2_fra_bilinfo(tilbud: Tilbud, biler: list[BilinfoBil], p: Parametre) -> Co2Resultat | None:
+    """CO2 fra identiske biler i Bilinfo, hvis tilbuddet ikke selv har en værdi."""
+    for b in biler:
+        if (b.co2_g_km is not None or b.km_pr_liter) and _er_fuldt_identisk(tilbud, b, p):
+            drivmiddel = "benzin" if b.er_plugin else b.drivmiddel
+            res = fastsaet_co2(drivmiddel, b.co2_g_km, None if b.er_plugin else b.km_pr_liter, b.maalemetode)
+            if res.g_km is not None:
+                return Co2Resultat(res.g_km, f"Fra identisk Bilinfo-bil ({b.variant}): {res.note}")
     return None
 
 
@@ -51,43 +56,43 @@ def vurder_tilbud(
     parametre: Parametre | None = None,
     idag: date | None = None,
 ) -> Vurdering:
-    """Sammenlign tilbuddet med Bilinfo og beregn registreringsafgiften.
+    """Værdifastsæt tilbuddet ud fra Bilinfo-annoncer og beregn registreringsafgiften.
 
-    aar: afgiftsår (satser). Standard er indeværende år.
+    aar: afgiftsår (satser). Standard er året for værdifastsættelsen.
     """
     idag = idag or date.today()
     aar = aar or idag.year
+    p = parametre or Parametre()
     advarsler: list[str] = []
 
-    priser = estimer_priser(tilbud, biler, parametre)
-    advarsler += priser.advarsler
+    vaerdi = vaerdifastsaet(tilbud, biler, idag, p)
+    advarsler += vaerdi.advarsler
 
     if tilbud.er_plugin:
         co2 = fastsaet_co2("benzin", tilbud.co2_g_km, None, tilbud.maalemetode)
-        if co2.g_km is None:
-            co2 = Co2Resultat(None, "Plugin-hybrid: angiv CO2 (g/km) - kan ikke beregnes fra km/l.")
     else:
         co2 = fastsaet_co2(tilbud.drivmiddel, tilbud.co2_g_km, tilbud.km_pr_liter, tilbud.maalemetode)
+    if co2.g_km is None:
+        co2 = _co2_fra_bilinfo(tilbud, biler, p) or co2
     if co2.g_km is None:
         advarsler.append(co2.note)
 
     afgift = None
     if tilbud.koeretoejstype not in ("personbil", "varebil"):
         advarsler.append(f"Køretøjstypen '{tilbud.koeretoejstype}' understøttes ikke.")
-    elif priser.handelspris and priser.nypris and co2.g_km is not None:
+    elif vaerdi.handelspris and vaerdi.nypris and co2.g_km is not None:
+        alder_aar = None
+        if tilbud.foerste_registrering:
+            a, m = alder(tilbud.foerste_registrering, idag)
+            alder_aar = a + m / 12
         afgift = beregn_brugt(
-            priser.handelspris,
-            priser.nypris,
-            co2.g_km,
-            Koeretoejstype(tilbud.koeretoejstype),
-            aar,
-            alder_aar=_alder(tilbud, idag),
+            vaerdi.handelspris, vaerdi.nypris, co2.g_km, Koeretoejstype(tilbud.koeretoejstype), aar, alder_aar
         )
         advarsler += afgift.advarsler
 
     samlet = forskel = None
     if afgift and tilbud.tilbudt_pris is not None:
         samlet = tilbud.tilbudt_pris + afgift.registreringsafgift
-        forskel = priser.handelspris - samlet
+        forskel = vaerdi.handelspris - samlet
 
-    return Vurdering(tilbud, priser, co2, afgift, samlet, forskel, advarsler)
+    return Vurdering(tilbud, vaerdi, co2, afgift, samlet, forskel, advarsler)

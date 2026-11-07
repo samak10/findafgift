@@ -86,6 +86,9 @@ class BilinfoBil:
     km_pr_liter: float | None
     maalemetode: str | None
     forhandler: str | None
+    oprettet: date | None = None  # CreatedDate - bruges til annoncens liggetid
+    aendret: date | None = None  # ModifiedDate
+    totalvaegt: int | None = None  # kg
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -126,6 +129,9 @@ class BilinfoBil:
             km_pr_liter=tal(d.get("KmPerLiter")),
             maalemetode=d.get("ApprovedFuelEconomyMeasurementMethod"),
             forhandler=d.get("DealerName"),
+            oprettet=dato(d.get("CreatedDate")),
+            aendret=dato(d.get("ModifiedDate")),
+            totalvaegt=heltal(d.get("TotalWeight")),
             raw=d,
         )
 
@@ -155,12 +161,14 @@ class BilinfoBil:
             "hk": self.hk,
             "drivmiddel": self.drivmiddel,
             "gear": self.gear,
+            "karrosseri": self.karrosseri,
             "pris_inkl_afgift": self.pris_inkl_afgift,
             "pris_uden_afgift": self.pris_uden_afgift,
             "nypris": self.nypris,
             "co2_g_km": self.co2_g_km,
             "km_pr_liter": self.km_pr_liter,
             "forhandler": self.forhandler,
+            "oprettet": self.oprettet.isoformat() if self.oprettet else None,
         }
 
 

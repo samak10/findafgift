@@ -1,4 +1,4 @@
-"""FindAfgift - beregn dansk registreringsafgift ud fra sammenlignelige biler i Bilinfo."""
+"""FindAfgift - beregn dansk registreringsafgift efter Motorstyrelsens metode med bildata fra Bilinfo."""
 
 from .afgift import (
     AfgiftsBeregning,
@@ -11,26 +11,28 @@ from .afgift import (
 )
 from .bilinfo import BilinfoBil, BilinfoKlient, laes_fil, parse_feed
 from .co2 import fastsaet_co2
-from .sammenligning import Parametre, Tilbud, estimer_priser, find_sammenlignelige
+from .tilbud import Ekstraudstyr, Tilbud
+from .vaerdifastsaettelse import Parametre, Vaerdifastsaettelse, vaerdifastsaet
 from .vurdering import Vurdering, vurder_tilbud
 
 __all__ = [
     "AfgiftsBeregning",
     "BilinfoBil",
     "BilinfoKlient",
+    "Ekstraudstyr",
     "Emissionsklasse",
     "Koeretoejstype",
     "Parametre",
     "Tilbud",
+    "Vaerdifastsaettelse",
     "Vurdering",
     "beregn_brugt",
     "beregn_brugt_fra_pris_uden_afgift",
     "beregn_ny",
-    "estimer_priser",
     "fastsaet_co2",
-    "find_sammenlignelige",
     "laes_fil",
     "ny_vaerdi_fra_nypris",
     "parse_feed",
+    "vaerdifastsaet",
     "vurder_tilbud",
 ]

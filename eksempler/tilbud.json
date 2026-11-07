@@ -2,20 +2,15 @@
   "maerke": "VW",
   "model": "Golf",
   "variant": "1,5 TSi 150 Life DSG",
+  "udstyrsniveau": "Life",
   "aargang": 2021,
   "foerste_registrering": "2021-04-01",
-  "km": 55000,
+  "km": 90000,
   "motor": 1.5,
   "hk": 150,
   "drivmiddel": "benzin",
   "gear": "A",
-  "udstyr": [
-    "Navigation",
-    "ParkingSensor",
-    "SeatHeater"
-  ],
-  "co2_g_km": 130,
-  "maalemetode": "wltp",
+  "stand": "middel",
   "koeretoejstype": "personbil",
   "tilbudt_pris": 120000
 }
