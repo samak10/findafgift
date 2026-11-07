@@ -11,6 +11,8 @@ Endpoints:
                          eller {"vehicle_id": "<Bilinfo VehicleId>", "tilbud": {"tilbudt_pris": 120000}}
                          "billedvurdering": true vurderer stand/skader fra Bilinfo-billeder med Claude
                          "manuelle_annoncer": [...] tilføjer annoncer, I selv har fundet (fx Bilbasen/DBA)
+                         "dba": true henter sammenlignelige annoncer fra DBA automatisk
+                         "dba_url": "https://www.dba.dk/mobility/item/..." = den tilbudte bil fra DBA
     POST /billedvurdering {"vehicle_id": "..."} eller {"billeder": ["https://..."], "info": {...}}
     GET  /biler?maerke=VW&model=Golf
 """
@@ -28,6 +30,7 @@ from urllib.parse import parse_qs, urlparse
 from .afgift import Koeretoejstype, beregn_brugt, beregn_brugt_fra_pris_uden_afgift, beregn_ny
 from .bilinfo import BilinfoBil, BilinfoKlient, laes_fil, manuel_annonce, parse_feed
 from .satser import SATSER, hent_satser
+from .dba import DbaFejl
 from .tilbud import Tilbud
 from .vaerdifastsaettelse import Parametre
 from .vurdering import vurder_tilbud
@@ -41,11 +44,19 @@ class Fejl(Exception):
 
 class App:
     def __init__(
-        self, klient: BilinfoKlient | None = None, feed_fil: str | None = None, billedvurderer=None
+        self, klient: BilinfoKlient | None = None, feed_fil: str | None = None, billedvurderer=None, dba=None
     ) -> None:
         self.klient = klient
         self.feed_fil = feed_fil
         self.billedvurderer = billedvurderer
+        self.dba = dba
+
+    def _dba(self):
+        if self.dba is None:
+            from .dba import DbaKlient
+
+            self.dba = DbaKlient(cache_mappe=os.environ.get("FINDAFGIFT_DBACACHE"))
+        return self.dba
 
     def _billedvurderer(self, body: dict):
         if not body.get("billedvurdering"):
@@ -95,10 +106,13 @@ class App:
             raise Fejl(400, "Angiv 'handelspris' (inkl. afgift) eller 'pris_uden_afgift'.")
 
         if metode == "POST" and sti == "/vurder":
+            kun_andre_kilder = (body.get("manuelle_annoncer") or body.get("dba") or body.get("dba_url")) and (
+                self.klient is None and not self.feed_fil
+            )
             if "biler" in body:
                 biler = parse_feed(body["biler"])
-            elif body.get("manuelle_annoncer") and self.klient is None and not self.feed_fil:
-                biler = []  # kun manuelt indtastede annoncer
+            elif kun_andre_kilder:
+                biler = []  # kun DBA og/eller manuelt indtastede annoncer
             else:
                 biler = self.biler(body.get("dealer_id"))
             biler = biler + [manuel_annonce(a) for a in body.get("manuelle_annoncer", [])]
@@ -109,16 +123,23 @@ class App:
                     raise Fejl(404, f"Bil med id {body['vehicle_id']} findes ikke i Bilinfo.")
                 tilbud = Tilbud.fra_bilinfo(bil, **body.get("tilbud", {}))
                 biler = [b for b in biler if b.vehicle_source_id != bil.vehicle_source_id and b.vehicle_id != bil.vehicle_id]
+            elif "dba_url" in body:
+                # Den tilbudte bil hentes fra en DBA-annonce; 'tilbud' kan overskrive felter.
+                bil = self._dba().hent_annonce(str(body["dba_url"]))
+                tilbud = Tilbud.fra_bilinfo(bil, **body.get("tilbud", {}))
+                biler = [b for b in biler if b.url != bil.url]
             elif "tilbud" in body:
                 tilbud = Tilbud.fra_dict(body["tilbud"])
             else:
-                raise Fejl(400, "Angiv 'tilbud' eller 'vehicle_id'.")
+                raise Fejl(400, "Angiv 'tilbud', 'vehicle_id' eller 'dba_url'.")
             return vurder_tilbud(
                 tilbud,
                 biler,
                 aar=body.get("aar"),
                 parametre=Parametre.fra_dict(body.get("parametre")),
                 billedvurderer=self._billedvurderer(body),
+                dba=self._dba() if body.get("dba") else None,
+                dba_max_sider=int(body.get("dba_max_sider", 3)),
             ).as_dict()
 
         if metode == "POST" and sti == "/billedvurdering":
@@ -167,6 +188,8 @@ def lav_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self._svar(200, app.haandter(metode, url.path, parse_qs(url.query), body))
             except Fejl as e:
                 self._svar(e.status, {"fejl": str(e)})
+            except DbaFejl as e:
+                self._svar(502, {"fejl": f"DBA: {e}"})
             except (KeyError, ValueError, TypeError) as e:
                 self._svar(400, {"fejl": f"Ugyldigt input: {e}"})
             except Exception as e:  # pragma: no cover

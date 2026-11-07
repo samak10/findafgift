@@ -56,19 +56,46 @@ def vurder_tilbud(
     parametre: Parametre | None = None,
     idag: date | None = None,
     billedvurderer=None,
+    dba=None,
+    dba_max_sider: int = 3,
 ) -> Vurdering:
     """Værdifastsæt tilbuddet ud fra Bilinfo-annoncer og beregn registreringsafgiften.
 
     aar: afgiftsår (satser). Standard er året for værdifastsættelsen.
     billedvurderer: valgfri Billedvurderer - vurderer stand/skader fra Bilinfo-billeder.
+    dba: valgfri DbaKlient - henter sammenlignelige annoncer fra DBA og lægger dem til.
     """
     idag = idag or date.today()
     aar = aar or idag.year
     p = parametre or Parametre()
     advarsler: list[str] = []
 
+    if dba is not None:
+        from .dba import DbaFejl, hent_sammenlignelige
+
+        try:
+            fra_dba = hent_sammenlignelige(
+                dba,
+                tilbud.maerke,
+                tilbud.model,
+                tilbud.aargang,
+                "plugin" if tilbud.er_plugin else tilbud.drivmiddel,
+                tilbud.koeretoejstype,
+                max_aar=p.max_aar_udvidelse,
+                max_sider=dba_max_sider,
+                idag=idag,
+            )
+            kendte = {b.url for b in biler if b.url}
+            biler = list(biler) + [b for b in fra_dba if b.url not in kendte]
+        except (DbaFejl, OSError) as e:
+            advarsler.append(f"DBA kunne ikke hentes: {e}")
+
     vaerdi = vaerdifastsaet(tilbud, biler, idag, p, billedvurderer)
     advarsler += vaerdi.advarsler
+    if vaerdi.annoncer and all(a.bil.privat for a in vaerdi.annoncer):
+        advarsler.append(
+            "Alle annoncer er private. Motorstyrelsen bruger som hovedregel forhandlerannoncer - handelsprisen er usikker."
+        )
 
     if tilbud.er_plugin:
         co2 = fastsaet_co2("benzin", tilbud.co2_g_km, None, tilbud.maalemetode)

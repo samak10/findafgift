@@ -171,28 +171,53 @@ Fra Bilinfo bruges: `Price`/`CashPrice` (kun `PriceType = RetailPrice` som pris 
 `ApprovedFuelEconomyMeasurementMethod`, `TotalWeight`, `CreatedDate` og `VehicleSourceId`.
 En bil med flere annoncer tælles kun én gang.
 
-## Annoncer fra Bilbasen og DBA (manuelt indtastet)
+## Annoncer fra DBA (automatisk)
 
-Motorstyrelsen bruger annoncer fra alle salgsportaler, også private annoncer. Annoncer, I selv
-finder på Bilbasen eller DBA, kan bruges som sammenligningsgrundlag sammen med Bilinfo-feedet.
-Se `eksempler/manuelle_annoncer.json`.
+Til intern brug med godkendelse kan systemet hente sammenlignelige annoncer fra DBA
+(`findafgift/dba.py`). Både forhandler- og privatannoncer kommer med, og Motorstyrelsen bruger også
+private annoncer. Disse data hentes:
+
+| Fra søgesiden | Fra annoncesiden |
+|---|---|
+| mærke, model, variant, modelår, km, pris, drivmiddel, gear, forhandler/privat, annoncedato, billeder | effekt (hk), slagvolumen, karrosseri, 1. registrering, CO2, forbrug (NEDC/WLTP), elektrisk rækkevidde (plugin-hybrid), beskrivelse |
+
+Registreringsnummer, stelnummer, koordinater og sælgernavn gemmes ikke. Klienten identificerer sig
+ærligt (`DBA_USER_AGENT`, sæt gerne jeres firmanavn og kontakt), overholder robots.txt, holder 3 sek.
+pause mellem forespørgsler og cacher sider (`FINDAFGIFT_DBACACHE=mappe`).
+
+```python
+from findafgift import DbaKlient, Tilbud, vurder_tilbud
+dba = DbaKlient(cache_mappe="dbacache")
+v = vurder_tilbud(tilbud, bilinfo_biler, dba=dba)           # DBA-annoncer lægges til Bilinfo-annoncerne
+
+bil = dba.hent_annonce("https://www.dba.dk/mobility/item/12345678")   # den tilbudte bil fra DBA
+v = vurder_tilbud(Tilbud.fra_bilinfo(bil, tilbudt_pris=120000), bilinfo_biler, dba=dba)
+```
+
+API: `"dba": true` på `/vurder` henter DBA-annoncer, og `"dba_url": "..."` bruger en DBA-annonce
+som den tilbudte bil.
+
+Kun søgeresultater i modelår ±2 med samme drivmiddel beriges med annoncesiden, højst 30 pr.
+vurdering. Det holder antallet af forespørgsler nede.
+
+## Annoncer indtastet manuelt (fx fra Bilbasen)
+
+Annoncer, I selv finder, kan lægges til som sammenligningsgrundlag. Se `eksempler/manuelle_annoncer.json`.
 
 ```python
 from findafgift import manuel_annonce
-biler += [manuel_annonce({"kilde": "dba", "url": "...", "maerke": "VW", "model": "Golf",
+biler += [manuel_annonce({"kilde": "bilbasen", "url": "...", "maerke": "VW", "model": "Golf",
                           "variant": "1,5 TSi 150 Life DSG", "aargang": 2021,
                           "foerste_registrering": "2021-08-01", "km": 85000, "motor": 1.5, "hk": 150,
-                          "pris": 205000, "privat": True, "oprettet": "2026-11-01"})]
+                          "pris": 205000, "privat": False, "oprettet": "2026-11-01"})]
 ```
 
-API: `"manuelle_annoncer": [...]` på `/vurder`. Private annoncer får ikke fradrag for nummerplader,
-fordi de ikke er omfattet af prismærkningsbekendtgørelsen.
+API: `"manuelle_annoncer": [...]` på `/vurder`. Private annoncer får ikke fradrag for nummerplader
+(prismærkningsbekendtgørelsen gælder kun forhandlere).
 
-Der er ingen automatisk indsamling fra Bilbasen eller DBA. Bilbasens brugervilkår
-([bilbasen.dk/brugeraftale](https://www.bilbasen.dk/brugeraftale)) forbyder robotter, scrapers og
-anden automatisk indsamling uden forudgående skriftlig godkendelse. Den lovlige vej til hele
-Bilbasen-markedet automatisk er Bilinfos fulde feed (se ovenfor). Alternativet er en skriftlig
-aftale med Vend Marketplaces, der ejer Bilbasen og DBA.
+**Bilbasen** hentes ikke automatisk. Bilbasen afviser automatiske forespørgsler med en bot-spærring,
+og den skal ikke omgås. Alle Bilbasens annoncer findes i Bilinfos fulde feed, som systemet allerede
+læser. Alternativt kan Bilbasen åbne adgang for jer som led i godkendelsen.
 
 ## Satser
 
@@ -226,6 +251,8 @@ eller × 29/32 (NEDC) for benzin/diesel.
 
 - Kun personbiler og varebiler. Motorcykler, autocampere, busser og lastbiler understøttes ikke.
 - Resultatet er vejledende. Den bindende afgift fastsættes af Motorstyrelsen.
+- DBA-annoncer har ingen nypris. Annoncer fra DBA, der ikke er identiske, reguleres derfor ikke for
+  forskel i nypris. Bilinfo-annoncer gør.
 - Nyprisen tages fra Bilinfos `NewPrice`. Motorstyrelsen bruger importørens anmeldte standardpris,
   så de to kan afvige.
 - Bilinfo viser ikke, om en annoncepris er sat ned. Derfor fravælges alle annoncer over 3 måneder,

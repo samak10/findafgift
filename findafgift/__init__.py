@@ -12,6 +12,7 @@ from .afgift import (
 from .billedvurdering import Billedvurderer, Billedvurdering
 from .bilinfo import BilinfoBil, BilinfoKlient, laes_fil, manuel_annonce, parse_feed
 from .co2 import fastsaet_co2
+from .dba import DbaKlient
 from .tilbud import Ekstraudstyr, Tilbud
 from .vaerdifastsaettelse import Parametre, Vaerdifastsaettelse, vaerdifastsaet
 from .vurdering import Vurdering, vurder_tilbud
@@ -22,6 +23,7 @@ __all__ = [
     "Billedvurdering",
     "BilinfoBil",
     "BilinfoKlient",
+    "DbaKlient",
     "Ekstraudstyr",
     "Emissionsklasse",
     "Koeretoejstype",

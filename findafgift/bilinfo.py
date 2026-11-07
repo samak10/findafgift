@@ -51,7 +51,7 @@ def dato(v: Any) -> date | None:
     if not v:
         return None
     s = str(v).strip()
-    for fmt in ("%d-%m-%Y", "%d-%m-%Y %H:%M:%S", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
+    for fmt in ("%d-%m-%Y", "%d-%m-%Y %H:%M:%S", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%d.%m.%Y"):
         try:
             return datetime.strptime(s, fmt).date()
         except ValueError:
