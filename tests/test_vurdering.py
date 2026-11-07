@@ -221,3 +221,40 @@ class TestServer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestManuelleAnnoncer(unittest.TestCase):
+    def setUp(self):
+        from findafgift.bilinfo import manuel_annonce
+
+        with open(os.path.join(HER, "..", "eksempler", "manuelle_annoncer.json"), encoding="utf-8") as f:
+            self.manuelle = [manuel_annonce(d) for d in json.load(f)]
+
+    def test_parse(self):
+        bb, dba = self.manuelle
+        self.assertEqual((bb.kilde, bb.pris_inkl_afgift, bb.koeretoejstype), ("bilbasen", 217900, "personbil"))
+        self.assertTrue(dba.privat)
+        self.assertNotEqual(bb.vehicle_id, dba.vehicle_id)
+
+    def test_kun_manuelle_annoncer(self):
+        v = vaerdifastsaet(tilbud(), self.manuelle + [laes_fil(FEED)[1]], DATO)
+        self.assertEqual(len(v.annoncer), 3)
+        priv = next(a for a in v.annoncer if a.bil.privat)
+        # Private annoncer er ikke omfattet af prismærkning -> intet fradrag for nummerplader
+        self.assertEqual(priv.korrigeret_pris, 205000)
+        bb = next(a for a in v.annoncer if a.bil.kilde == "bilbasen")
+        self.assertEqual(bb.korrigeret_pris, 217900 - 1180)
+
+    def test_ukendt_felt(self):
+        from findafgift.bilinfo import manuel_annonce
+
+        with self.assertRaises(ValueError):
+            manuel_annonce({"maerke": "VW", "model": "Golf", "pris": 1, "farve": "rød"})
+
+    def test_server_manuelle_annoncer(self):
+        with open(TILBUD, encoding="utf-8") as f:
+            t = json.load(f)
+        with open(os.path.join(HER, "..", "eksempler", "manuelle_annoncer.json"), encoding="utf-8") as f:
+            m = json.load(f)
+        res = App().haandter("POST", "/vurder", {}, {"tilbud": t, "manuelle_annoncer": m, "aar": 2026})
+        self.assertEqual(res["vaerdifastsaettelse"]["antal_annoncer"], 2)

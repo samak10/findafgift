@@ -12,6 +12,7 @@ Adgang fås via Bilinfo kundeservice (bilinfo@bilinfo.dk).
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import time
@@ -91,6 +92,9 @@ class BilinfoBil:
     totalvaegt: int | None = None  # kg
     billeder: list[str] = field(default_factory=list)  # Pictures (URL'er)
     kommentar: str = ""  # Comment (annoncetekst)
+    kilde: str = "bilinfo"  # 'bilinfo' eller fx 'bilbasen'/'dba' for manuelt indtastede annoncer
+    url: str | None = None
+    privat: bool = False  # privat sælger (ikke omfattet af prismærkningsbekendtgørelsen)
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -174,7 +178,74 @@ class BilinfoBil:
             "forhandler": self.forhandler,
             "oprettet": self.oprettet.isoformat() if self.oprettet else None,
             "antal_billeder": len(self.billeder),
+            "kilde": self.kilde,
+            "url": self.url,
+            "privat": self.privat,
         }
+
+
+MANUELLE_FELTER = {
+    "maerke", "model", "variant", "aargang", "foerste_registrering", "km", "motor", "hk",
+    "drivmiddel", "gear", "karrosseri", "pris", "pris_uden_afgift", "nypris", "co2_g_km",
+    "km_pr_liter", "maalemetode", "oprettet", "billeder", "kommentar", "kilde", "url",
+    "privat", "koeretoejstype", "totalvaegt",
+}
+
+
+def manuel_annonce(d: dict) -> BilinfoBil:
+    """En annonce, som brugeren selv har fundet og indtastet (fx fra Bilbasen eller DBA).
+
+    pris er annonceprisen inkl. afgift. Datoer angives som ÅÅÅÅ-MM-DD.
+    drivmiddel: benzin / diesel / el / plugin. koeretoejstype: personbil / varebil.
+    """
+    ukendte = set(d) - MANUELLE_FELTER
+    if ukendte:
+        raise ValueError(f"Ukendte felter i manuel annonce: {sorted(ukendte)}")
+    for felt in ("maerke", "model", "pris"):
+        if not d.get(felt):
+            raise ValueError(f"Manuel annonce mangler '{felt}'.")
+    drivmiddel = str(d.get("drivmiddel", "benzin")).lower()
+    plugin = drivmiddel in ("plugin", "plug-in", "phev")
+    url = d.get("url")
+    ident = url or json.dumps(d, sort_keys=True, ensure_ascii=False, default=str)
+    vid = "manuel-" + hashlib.sha1(ident.encode()).hexdigest()[:16]
+    type_id = {"personbil": "P", "varebil": "V"}.get(d.get("koeretoejstype", "personbil"), "")
+    return BilinfoBil(
+        vehicle_id=vid,
+        vehicle_source_id=vid,
+        maerke=str(d["maerke"]),
+        model=str(d["model"]),
+        variant=str(d.get("variant", "")),
+        aargang=heltal(d.get("aargang")),
+        foerste_registrering=dato(d.get("foerste_registrering")),
+        km=heltal(d.get("km")),
+        motor=tal(d.get("motor")),
+        hk=heltal(d.get("hk")),
+        drivmiddel="Benzin" if plugin else drivmiddel.capitalize(),
+        sekundaert_drivmiddel="El" if plugin else None,
+        type_id=type_id,
+        type="Personvogn" if type_id == "P" else "Varevogn" if type_id == "V" else "",
+        gear=d.get("gear"),
+        karrosseri=d.get("karrosseri"),
+        udstyr=[],
+        pris=heltal(d["pris"]),
+        pris_type="RetailPrice",
+        pris_inkl_afgift=heltal(d["pris"]),
+        pris_uden_afgift=heltal(d.get("pris_uden_afgift")),
+        nypris=heltal(d.get("nypris")),
+        co2_g_km=tal(d.get("co2_g_km")),
+        km_pr_liter=tal(d.get("km_pr_liter")),
+        maalemetode=d.get("maalemetode"),
+        forhandler=None,
+        oprettet=dato(d.get("oprettet")),
+        totalvaegt=heltal(d.get("totalvaegt")),
+        billeder=[str(u) for u in d.get("billeder", [])],
+        kommentar=str(d.get("kommentar", "")),
+        kilde=str(d.get("kilde", "manuel")),
+        url=url,
+        privat=bool(d.get("privat", False)),
+        raw=dict(d),
+    )
 
 
 def parse_feed(data: dict | list) -> list[BilinfoBil]:

@@ -171,6 +171,29 @@ Fra Bilinfo bruges: `Price`/`CashPrice` (kun `PriceType = RetailPrice` som pris 
 `ApprovedFuelEconomyMeasurementMethod`, `TotalWeight`, `CreatedDate` og `VehicleSourceId`.
 En bil med flere annoncer tælles kun én gang.
 
+## Annoncer fra Bilbasen og DBA (manuelt indtastet)
+
+Motorstyrelsen bruger annoncer fra alle salgsportaler, også private annoncer. Annoncer, I selv
+finder på Bilbasen eller DBA, kan bruges som sammenligningsgrundlag sammen med Bilinfo-feedet.
+Se `eksempler/manuelle_annoncer.json`.
+
+```python
+from findafgift import manuel_annonce
+biler += [manuel_annonce({"kilde": "dba", "url": "...", "maerke": "VW", "model": "Golf",
+                          "variant": "1,5 TSi 150 Life DSG", "aargang": 2021,
+                          "foerste_registrering": "2021-08-01", "km": 85000, "motor": 1.5, "hk": 150,
+                          "pris": 205000, "privat": True, "oprettet": "2026-11-01"})]
+```
+
+API: `"manuelle_annoncer": [...]` på `/vurder`. Private annoncer får ikke fradrag for nummerplader,
+fordi de ikke er omfattet af prismærkningsbekendtgørelsen.
+
+Der er ingen automatisk indsamling fra Bilbasen eller DBA. Bilbasens brugervilkår
+([bilbasen.dk/brugeraftale](https://www.bilbasen.dk/brugeraftale)) forbyder robotter, scrapers og
+anden automatisk indsamling uden forudgående skriftlig godkendelse. Den lovlige vej til hele
+Bilbasen-markedet automatisk er Bilinfos fulde feed (se ovenfor). Alternativet er en skriftlig
+aftale med Vend Marketplaces, der ejer Bilbasen og DBA.
+
 ## Satser
 
 Satserne for 2026 og 2027 står i `findafgift/satser.py`

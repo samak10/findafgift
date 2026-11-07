@@ -10,6 +10,7 @@ Endpoints:
     POST /vurder         {"tilbud": {...}, "aar": 2026, "parametre": {...}, "dealer_id": "..."}
                          eller {"vehicle_id": "<Bilinfo VehicleId>", "tilbud": {"tilbudt_pris": 120000}}
                          "billedvurdering": true vurderer stand/skader fra Bilinfo-billeder med Claude
+                         "manuelle_annoncer": [...] tilføjer annoncer, I selv har fundet (fx Bilbasen/DBA)
     POST /billedvurdering {"vehicle_id": "..."} eller {"billeder": ["https://..."], "info": {...}}
     GET  /biler?maerke=VW&model=Golf
 """
@@ -25,7 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .afgift import Koeretoejstype, beregn_brugt, beregn_brugt_fra_pris_uden_afgift, beregn_ny
-from .bilinfo import BilinfoBil, BilinfoKlient, laes_fil, parse_feed
+from .bilinfo import BilinfoBil, BilinfoKlient, laes_fil, manuel_annonce, parse_feed
 from .satser import SATSER, hent_satser
 from .tilbud import Tilbud
 from .vaerdifastsaettelse import Parametre
@@ -94,7 +95,13 @@ class App:
             raise Fejl(400, "Angiv 'handelspris' (inkl. afgift) eller 'pris_uden_afgift'.")
 
         if metode == "POST" and sti == "/vurder":
-            biler = parse_feed(body["biler"]) if "biler" in body else self.biler(body.get("dealer_id"))
+            if "biler" in body:
+                biler = parse_feed(body["biler"])
+            elif body.get("manuelle_annoncer") and self.klient is None and not self.feed_fil:
+                biler = []  # kun manuelt indtastede annoncer
+            else:
+                biler = self.biler(body.get("dealer_id"))
+            biler = biler + [manuel_annonce(a) for a in body.get("manuelle_annoncer", [])]
             if "vehicle_id" in body:
                 # Den tilbudte bil hentes fra Bilinfo; 'tilbud' kan overskrive fx stand og tilbudt_pris.
                 bil = next((b for b in biler if body["vehicle_id"] in (b.vehicle_id, b.vehicle_source_id)), None)

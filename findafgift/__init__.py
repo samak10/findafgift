@@ -10,7 +10,7 @@ from .afgift import (
     ny_vaerdi_fra_nypris,
 )
 from .billedvurdering import Billedvurderer, Billedvurdering
-from .bilinfo import BilinfoBil, BilinfoKlient, laes_fil, parse_feed
+from .bilinfo import BilinfoBil, BilinfoKlient, laes_fil, manuel_annonce, parse_feed
 from .co2 import fastsaet_co2
 from .tilbud import Ekstraudstyr, Tilbud
 from .vaerdifastsaettelse import Parametre, Vaerdifastsaettelse, vaerdifastsaet
@@ -34,6 +34,7 @@ __all__ = [
     "beregn_ny",
     "fastsaet_co2",
     "laes_fil",
+    "manuel_annonce",
     "ny_vaerdi_fra_nypris",
     "parse_feed",
     "vaerdifastsaet",

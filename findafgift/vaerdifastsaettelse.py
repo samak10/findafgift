@@ -260,8 +260,11 @@ def _korriger(
     bv: "Billedvurdering | None" = None,
 ) -> tuple[list[tuple[str, float]], float]:
     korr: list[tuple[str, float]] = []
-    # Prismærkningsbekendtgørelsen omfatter personbiler og varebiler op til 2.000 kg totalvægt.
-    omfattet = b.koeretoejstype == "personbil" or (b.totalvaegt is not None and b.totalvaegt <= 2_000)
+    # Prismærkningsbekendtgørelsen omfatter forhandlerannoncer for personbiler og varebiler
+    # op til 2.000 kg totalvægt - ikke private annoncer.
+    omfattet = not b.privat and (
+        b.koeretoejstype == "personbil" or (b.totalvaegt is not None and b.totalvaegt <= 2_000)
+    )
     if omfattet and p.nummerplader_kr:
         korr.append(("Fradrag for nummerplader", -p.nummerplader_kr))
         pris -= p.nummerplader_kr
